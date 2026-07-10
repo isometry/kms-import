@@ -119,10 +119,21 @@ func TestDryRunText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	for _, want := range []string{"RSA_2048", "SIGN_VERIFY", "alias/my-app", "Name=test", "dry-run"} {
+	for _, want := range []string{"RSA_2048", "SIGN_VERIFY", "alias/my-app", "Name=test", "dry-run", "sha256:"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("dry-run output missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestDryRunAdopt(t *testing.T) {
+	keyPath := writeTestKey(t)
+	stdout, err := runCommand(t, keyPath, "--dry-run", "--adopt", "1234abcd-12ab-34cd-56ef-1234567890ab")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(stdout, "1234abcd-12ab-34cd-56ef-1234567890ab") {
+		t.Errorf("dry-run output missing adopt target:\n%s", stdout)
 	}
 }
 
@@ -133,10 +144,11 @@ func TestDryRunJSON(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	var plan struct {
-		DryRun  bool     `json:"dryRun"`
-		KeySpec string   `json:"keySpec"`
-		Usage   string   `json:"usage"`
-		Aliases []string `json:"aliases"`
+		DryRun      bool     `json:"dryRun"`
+		KeySpec     string   `json:"keySpec"`
+		Usage       string   `json:"usage"`
+		Aliases     []string `json:"aliases"`
+		Fingerprint string   `json:"fingerprint"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &plan); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
@@ -146,6 +158,9 @@ func TestDryRunJSON(t *testing.T) {
 	}
 	if len(plan.Aliases) != 1 || plan.Aliases[0] != "alias/my-app" {
 		t.Errorf("aliases = %v", plan.Aliases)
+	}
+	if !strings.HasPrefix(plan.Fingerprint, "sha256:") || len(plan.Fingerprint) != len("sha256:")+64 {
+		t.Errorf("fingerprint = %q", plan.Fingerprint)
 	}
 }
 

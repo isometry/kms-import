@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -54,6 +55,7 @@ Ed25519) private keys in PEM or DER form (PKCS#1, PKCS#8 or SEC1).`,
 	flags.String("expires", "", "key material expiry as Go duration (e.g. 8760h) or RFC3339 timestamp (default: never)")
 	flags.String("description", "", "KMS key description")
 	flags.String("output", "text", "output format: text or json")
+	flags.String("adopt", "", "bring an existing KMS key under management: verify it holds this material, then fingerprint-tag it")
 	flags.Bool("dry-run", false, "validate the key file and print the plan without calling AWS")
 	flags.String("region", "", "AWS region (default: SDK resolution)")
 	flags.String("profile", "", "AWS shared-config profile (default: SDK resolution)")
@@ -130,6 +132,7 @@ func run(cmd *cobra.Command, v *viper.Viper, keyPath string) error {
 		Aliases:     aliases,
 		Tags:        tags,
 		ValidTo:     validTo,
+		AdoptKeyID:  v.GetString("adopt"),
 	}
 
 	if v.GetBool("dry-run") {
@@ -151,9 +154,12 @@ func run(cmd *cobra.Command, v *viper.Viper, keyPath string) error {
 		return fmt.Errorf("loading AWS configuration: %w", err)
 	}
 
-	fmt.Fprintf(stderr, "importing %s key material into a new KMS key...\n", material.KeySpec)
-	result, runErr := importer.Run(ctx, kms.NewFromConfig(cfg), params)
+	fmt.Fprintf(stderr, "ensuring a KMS key holds the %s key material (fingerprint %s)...\n", material.KeySpec, material.Fingerprint)
+	result, runErr := importer.Ensure(ctx, kms.NewFromConfig(cfg), resourcegroupstaggingapi.NewFromConfig(cfg), params)
 	if result != nil {
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(stderr, "warning: %s\n", warning)
+		}
 		if err := renderResult(cmd.OutOrStdout(), outputFormat, result); err != nil {
 			return err
 		}
@@ -235,16 +241,22 @@ func renderPlan(w io.Writer, format, keyPath string, p importer.Params) error {
 			KeyFile     string            `json:"keyFile"`
 			KeySpec     string            `json:"keySpec"`
 			Usage       string            `json:"usage"`
+			Fingerprint string            `json:"fingerprint"`
+			AdoptKeyID  string            `json:"adoptKeyId,omitempty"`
 			Description string            `json:"description,omitempty"`
 			Aliases     []string          `json:"aliases,omitempty"`
 			Tags        map[string]string `json:"tags,omitempty"`
 			Expires     *time.Time        `json:"expires,omitempty"`
-		}{true, keyPath, string(p.Material.KeySpec), string(p.Usage), p.Description, p.Aliases, p.Tags, p.ValidTo})
+		}{true, keyPath, string(p.Material.KeySpec), string(p.Usage), p.Material.Fingerprint, p.AdoptKeyID, p.Description, p.Aliases, p.Tags, p.ValidTo})
 	}
 
 	fmt.Fprintln(w, "dry-run: validated key material; no AWS calls made")
 	fmt.Fprintf(w, "  key file:    %s\n", keyPath)
 	fmt.Fprintf(w, "  key spec:    %s\n", p.Material.KeySpec)
+	fmt.Fprintf(w, "  fingerprint: %s\n", p.Material.Fingerprint)
+	if p.AdoptKeyID != "" {
+		fmt.Fprintf(w, "  adopt:       %s\n", p.AdoptKeyID)
+	}
 	fmt.Fprintf(w, "  usage:       %s\n", p.Usage)
 	if p.Description != "" {
 		fmt.Fprintf(w, "  description: %s\n", p.Description)
@@ -267,14 +279,25 @@ func renderResult(w io.Writer, format string, r *importer.Result) error {
 	if format == "json" {
 		return writeJSON(w, r)
 	}
-	fmt.Fprintln(w, "imported key material into new KMS key")
-	fmt.Fprintf(w, "  key id:  %s\n", r.KeyID)
-	fmt.Fprintf(w, "  arn:     %s\n", r.ARN)
-	fmt.Fprintf(w, "  spec:    %s\n", r.KeySpec)
-	if len(r.Aliases) > 0 {
-		fmt.Fprintf(w, "  aliases: %s\n", strings.Join(r.Aliases, ", "))
+	summaries := map[string]string{
+		importer.StatusCreated:    "imported key material into new KMS key",
+		importer.StatusExists:     "KMS key already holds this key material",
+		importer.StatusReimported: "reimported key material into existing KMS key",
+		importer.StatusAdopted:    "adopted existing KMS key",
 	}
-	fmt.Fprintf(w, "  expires: %s\n", expiryString(r.Expires))
+	summary := summaries[r.Status]
+	if summary == "" {
+		summary = r.Status
+	}
+	fmt.Fprintln(w, summary)
+	fmt.Fprintf(w, "  key id:      %s\n", r.KeyID)
+	fmt.Fprintf(w, "  arn:         %s\n", r.ARN)
+	fmt.Fprintf(w, "  spec:        %s\n", r.KeySpec)
+	fmt.Fprintf(w, "  fingerprint: %s\n", r.Fingerprint)
+	if len(r.Aliases) > 0 {
+		fmt.Fprintf(w, "  aliases:     %s\n", strings.Join(r.Aliases, ", "))
+	}
+	fmt.Fprintf(w, "  expires:     %s\n", expiryString(r.Expires))
 	return nil
 }
 
