@@ -60,10 +60,10 @@ func TestParseExpires(t *testing.T) {
 	}
 
 	for name, in := range map[string]string{
-		"past":      now.Add(-time.Hour).Format(time.RFC3339),
-		"too-far":   "9000h", // > 365 days
-		"garbage":   "next tuesday",
-		"negative":  "-24h",
+		"past":     now.Add(-time.Hour).Format(time.RFC3339),
+		"too-far":  "9000h", // > 365 days
+		"garbage":  "next tuesday",
+		"negative": "-24h",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseExpires(in, now); err == nil {
@@ -102,7 +102,7 @@ func writeTestKey(t *testing.T) string {
 	return path
 }
 
-func runCommand(t *testing.T, args ...string) (stdout, stderr string, err error) {
+func runCommand(t *testing.T, args ...string) (stdout string, err error) {
 	t.Helper()
 	cmd := newRootCmd()
 	var out, errBuf bytes.Buffer
@@ -110,12 +110,12 @@ func runCommand(t *testing.T, args ...string) (stdout, stderr string, err error)
 	cmd.SetErr(&errBuf)
 	cmd.SetArgs(args)
 	err = cmd.Execute()
-	return out.String(), errBuf.String(), err
+	return out.String(), err
 }
 
 func TestDryRunText(t *testing.T) {
 	keyPath := writeTestKey(t)
-	stdout, _, err := runCommand(t, keyPath, "--dry-run", "--tags", "Name=test", "--alias", "my-app")
+	stdout, err := runCommand(t, keyPath, "--dry-run", "--tags", "Name=test", "--alias", "my-app")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestDryRunText(t *testing.T) {
 
 func TestDryRunJSON(t *testing.T) {
 	keyPath := writeTestKey(t)
-	stdout, _, err := runCommand(t, keyPath, "--dry-run", "--output", "json", "--alias", "my-app")
+	stdout, err := runCommand(t, keyPath, "--dry-run", "--output", "json", "--alias", "my-app")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestDryRunJSON(t *testing.T) {
 func TestEnvOverride(t *testing.T) {
 	t.Setenv("KMS_IMPORT_USAGE", "ENCRYPT_DECRYPT")
 	keyPath := writeTestKey(t)
-	stdout, _, err := runCommand(t, keyPath, "--dry-run")
+	stdout, err := runCommand(t, keyPath, "--dry-run")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -164,16 +164,16 @@ func TestEnvOverride(t *testing.T) {
 func TestValidationErrors(t *testing.T) {
 	keyPath := writeTestKey(t)
 	cases := map[string][]string{
-		"bad-tag":        {keyPath, "--dry-run", "--tags", "notag"},
-		"bad-expires":    {keyPath, "--dry-run", "--expires", "never"},
-		"bad-usage":      {keyPath, "--dry-run", "--usage", "SIGN_EVERYTHING"},
-		"bad-output":     {keyPath, "--dry-run", "--output", "yaml"},
-		"missing-file":   {filepath.Join(t.TempDir(), "nope.pem"), "--dry-run"},
-		"no-positional":  {"--dry-run"},
+		"bad-tag":       {keyPath, "--dry-run", "--tags", "notag"},
+		"bad-expires":   {keyPath, "--dry-run", "--expires", "never"},
+		"bad-usage":     {keyPath, "--dry-run", "--usage", "SIGN_EVERYTHING"},
+		"bad-output":    {keyPath, "--dry-run", "--output", "yaml"},
+		"missing-file":  {filepath.Join(t.TempDir(), "nope.pem"), "--dry-run"},
+		"no-positional": {"--dry-run"},
 	}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, _, err := runCommand(t, args...); err == nil {
+			if _, err := runCommand(t, args...); err == nil {
 				t.Error("command succeeded, want error")
 			}
 		})

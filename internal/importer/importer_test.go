@@ -27,11 +27,11 @@ const (
 type mockKMS struct {
 	wrappingKeyDER []byte
 
-	createKeyIn   *kms.CreateKeyInput
-	getParamsIn   *kms.GetParametersForImportInput
-	importIn      *kms.ImportKeyMaterialInput
-	aliasIn       []*kms.CreateAliasInput
-	deleteIn      *kms.ScheduleKeyDeletionInput
+	createKeyIn *kms.CreateKeyInput
+	getParamsIn *kms.GetParametersForImportInput
+	importIn    *kms.ImportKeyMaterialInput
+	aliasIn     []*kms.CreateAliasInput
+	deleteIn    *kms.ScheduleKeyDeletionInput
 
 	getParamsErr error
 	importErr    error

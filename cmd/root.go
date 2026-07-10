@@ -70,15 +70,19 @@ Ed25519) private keys in PEM or DER form (PKCS#1, PKCS#8 or SEC1).`,
 
 // Execute runs the root command, exiting non-zero on error.
 func Execute(version string) {
+	if err := execute(version); err != nil {
+		fmt.Fprintf(os.Stderr, "kms-import: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func execute(version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cmd := newRootCmd()
 	cmd.Version = version
-	if err := cmd.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "kms-import: %v\n", err)
-		os.Exit(1)
-	}
+	return cmd.ExecuteContext(ctx)
 }
 
 func run(cmd *cobra.Command, v *viper.Viper, keyPath string) error {
@@ -158,18 +162,16 @@ func run(cmd *cobra.Command, v *viper.Viper, keyPath string) error {
 }
 
 func readKeyFile(path string) (*keymaterial.KeyMaterial, error) {
-	f, err := os.Open(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-
-	data, err := io.ReadAll(io.LimitReader(f, maxKeyFileSize+1))
+	if info.Size() > maxKeyFileSize {
+		return nil, fmt.Errorf("%s is larger than %d bytes; not a private key file", path, maxKeyFileSize)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is the user-supplied CLI argument
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-	if len(data) > maxKeyFileSize {
-		return nil, fmt.Errorf("%s is larger than %d bytes; not a private key file", path, maxKeyFileSize)
 	}
 	material, err := keymaterial.Parse(data)
 	clear(data)
