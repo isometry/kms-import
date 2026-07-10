@@ -119,7 +119,7 @@ func TestDryRunText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	for _, want := range []string{"RSA_2048", "SIGN_VERIFY", "alias/my-app", "Name=test", "dry-run", "sha256:"} {
+	for _, want := range []string{"RSA_2048", "SIGN_VERIFY", "alias/my-app", "Name=test", "dry-run", "SHA256:"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("dry-run output missing %q:\n%s", want, stdout)
 		}
@@ -159,7 +159,7 @@ func TestDryRunJSON(t *testing.T) {
 	if len(plan.Aliases) != 1 || plan.Aliases[0] != "alias/my-app" {
 		t.Errorf("aliases = %v", plan.Aliases)
 	}
-	if !strings.HasPrefix(plan.Fingerprint, "sha256:") || len(plan.Fingerprint) != len("sha256:")+64 {
+	if !strings.HasPrefix(plan.Fingerprint, "SHA256:") || len(plan.Fingerprint) != len("SHA256:")+44 {
 		t.Errorf("fingerprint = %q", plan.Fingerprint)
 	}
 }

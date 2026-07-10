@@ -13,7 +13,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -30,8 +30,9 @@ type KeyMaterial struct {
 	// PublicKeyDER is the derived public key as DER-encoded SubjectPublicKeyInfo,
 	// the same encoding KMS returns from GetPublicKey.
 	PublicKeyDER []byte
-	// Fingerprint is "sha256:<hex>" over PublicKeyDER, used to tag and look up
-	// KMS keys holding this material.
+	// Fingerprint is "SHA256:<base64>" over PublicKeyDER — the same format
+	// GitHub displays for App private keys — used to tag and look up KMS keys
+	// holding this material.
 	Fingerprint string
 
 	// publicKey enables semantic comparison for stdlib-supported key types;
@@ -91,7 +92,7 @@ func parseSPKI(der []byte) (pkix.AlgorithmIdentifier, asn1.BitString, error) {
 
 func fingerprint(spkiDER []byte) string {
 	sum := sha256.Sum256(spkiDER)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return "SHA256:" + base64.StdEncoding.EncodeToString(sum[:])
 }
 
 var (

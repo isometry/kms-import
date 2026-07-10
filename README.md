@@ -28,10 +28,10 @@ duplicating. The identity of a key is its **public key**, not metadata: KMS
 derives the public key from imported private material (`GetPublicKey`), and
 kms-import derives the same public key locally from the file.
 
-- Every imported key is tagged `fingerprint: sha256:<hex>` — the SHA-256 of
-  the public key's DER SPKI encoding (the same value
-  `openssl pkey -in key.pem -pubout -outform der | openssl dgst -sha256`
-  prints).
+- Every imported key is tagged `fingerprint: SHA256:<base64>` — the SHA-256 of
+  the public key's DER SPKI encoding, in the same format GitHub displays for
+  App private keys, so the KMS tag matches GitHub's UI verbatim. Equivalent to:
+  `openssl pkey -in key.pem -pubout -outform der | openssl dgst -sha256 -binary | openssl base64`.
 - The tag is only an *index*: candidates are discovered via the Resource
   Groups Tagging API, then always **verified** by comparing `GetPublicKey`
   output against the local public key. A tag that lies is detected and
@@ -73,7 +73,7 @@ imported key material into new KMS key
   key id:      1234abcd-12ab-34cd-56ef-1234567890ab
   arn:         arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab
   spec:        RSA_2048
-  fingerprint: sha256:9f2c8b6d...
+  fingerprint: SHA256:DjiHOH4xP+nMWVGXRt/C6zP0t/OnG4WbKDJin9TTVd0=
   aliases:     alias/github-app
   expires:     never
 
@@ -110,7 +110,7 @@ $ kms-import key.pem --alias my-key --output json
   "keyId": "1234abcd-12ab-34cd-56ef-1234567890ab",
   "arn": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-...",
   "keySpec": "RSA_2048",
-  "fingerprint": "sha256:9f2c8b6d...",
+  "fingerprint": "SHA256:DjiHOH4xP+nMWVGXRt/C6zP0t/OnG4WbKDJin9TTVd0=",
   "aliases": ["alias/my-key"]
 }
 ```

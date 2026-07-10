@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/pem"
 	"strings"
 	"testing"
@@ -274,10 +273,10 @@ func TestParseRejections(t *testing.T) {
 // secp256k1 fixture public key SPKI and fingerprint, precomputed with:
 //
 //	openssl pkey -in k1-sec1.pem -pubout -outform der | base64
-//	openssl pkey -in k1-sec1.pem -pubout -outform der | openssl dgst -sha256
+//	openssl pkey -in k1-sec1.pem -pubout -outform der | openssl dgst -sha256 -binary | openssl base64
 const (
 	secp256k1SPKIBase64  = "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAEAx6rxbEMmWUVT1EARxn4WtMyeHgKmg+OynVBM8OHsMEcNUog8SoYjiBsmesxZ15J2A9ihb8sv8CyDH+i0OABUQ=="
-	secp256k1Fingerprint = "sha256:a85faba6303799b982c995ba167fd9d6055e91fa3ef2b3b467afc0c9fd4e7e78"
+	secp256k1Fingerprint = "SHA256:qF+rpjA3mbmCyZW6Fn/Z1gVekfo+8rO0Z6/Ayf1Ofng="
 )
 
 func spkiFingerprint(t *testing.T, pub any) string {
@@ -287,7 +286,7 @@ func spkiFingerprint(t *testing.T, pub any) string {
 		t.Fatalf("MarshalPKIXPublicKey: %v", err)
 	}
 	sum := sha256.Sum256(der)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return "SHA256:" + base64.StdEncoding.EncodeToString(sum[:])
 }
 
 func TestFingerprint(t *testing.T) {
