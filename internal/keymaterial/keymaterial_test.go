@@ -276,8 +276,8 @@ func TestParseRejections(t *testing.T) {
 //	openssl pkey -in k1-sec1.pem -pubout -outform der | base64
 //	openssl pkey -in k1-sec1.pem -pubout -outform der | openssl dgst -sha256
 const (
-	secp256k1SPKIBase64    = "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAEAx6rxbEMmWUVT1EARxn4WtMyeHgKmg+OynVBM8OHsMEcNUog8SoYjiBsmesxZ15J2A9ihb8sv8CyDH+i0OABUQ=="
-	secp256k1Fingerprint   = "sha256:a85faba6303799b982c995ba167fd9d6055e91fa3ef2b3b467afc0c9fd4e7e78"
+	secp256k1SPKIBase64  = "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAEAx6rxbEMmWUVT1EARxn4WtMyeHgKmg+OynVBM8OHsMEcNUog8SoYjiBsmesxZ15J2A9ihb8sv8CyDH+i0OABUQ=="
+	secp256k1Fingerprint = "sha256:a85faba6303799b982c995ba167fd9d6055e91fa3ef2b3b467afc0c9fd4e7e78"
 )
 
 func spkiFingerprint(t *testing.T, pub any) string {
@@ -308,9 +308,9 @@ func TestFingerprint(t *testing.T) {
 		data []byte
 		want string
 	}{
-		"rsa":     {pemEncode(t, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey)), spkiFingerprint(t, &rsaKey.PublicKey)},
-		"ecdsa":   {pemEncode(t, "PRIVATE KEY", mustPKCS8(t, ecKey)), spkiFingerprint(t, &ecKey.PublicKey)},
-		"ed25519": {pemEncode(t, "PRIVATE KEY", mustPKCS8(t, edKey)), spkiFingerprint(t, edPub)},
+		"rsa":             {pemEncode(t, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey)), spkiFingerprint(t, &rsaKey.PublicKey)},
+		"ecdsa":           {pemEncode(t, "PRIVATE KEY", mustPKCS8(t, ecKey)), spkiFingerprint(t, &ecKey.PublicKey)},
+		"ed25519":         {pemEncode(t, "PRIVATE KEY", mustPKCS8(t, edKey)), spkiFingerprint(t, edPub)},
 		"secp256k1-sec1":  {[]byte(secp256k1SEC1PEM), secp256k1Fingerprint},
 		"secp256k1-pkcs8": {[]byte(secp256k1PKCS8PEM), secp256k1Fingerprint},
 	}
