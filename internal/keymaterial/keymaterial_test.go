@@ -6,7 +6,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"strings"
 	"testing"
@@ -265,5 +268,119 @@ func TestParseRejections(t *testing.T) {
 				t.Errorf("error %q does not mention %q", err, tc.errWant)
 			}
 		})
+	}
+}
+
+// secp256k1 fixture public key SPKI and fingerprint, precomputed with:
+//
+//	openssl pkey -in k1-sec1.pem -pubout -outform der | base64
+//	openssl pkey -in k1-sec1.pem -pubout -outform der | openssl dgst -sha256
+const (
+	secp256k1SPKIBase64    = "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAEAx6rxbEMmWUVT1EARxn4WtMyeHgKmg+OynVBM8OHsMEcNUog8SoYjiBsmesxZ15J2A9ihb8sv8CyDH+i0OABUQ=="
+	secp256k1Fingerprint   = "sha256:a85faba6303799b982c995ba167fd9d6055e91fa3ef2b3b467afc0c9fd4e7e78"
+)
+
+func spkiFingerprint(t *testing.T, pub any) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey: %v", err)
+	}
+	sum := sha256.Sum256(der)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func TestFingerprint(t *testing.T) {
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	ecKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	edPub, edKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+
+	cases := map[string]struct {
+		data []byte
+		want string
+	}{
+		"rsa":     {pemEncode(t, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey)), spkiFingerprint(t, &rsaKey.PublicKey)},
+		"ecdsa":   {pemEncode(t, "PRIVATE KEY", mustPKCS8(t, ecKey)), spkiFingerprint(t, &ecKey.PublicKey)},
+		"ed25519": {pemEncode(t, "PRIVATE KEY", mustPKCS8(t, edKey)), spkiFingerprint(t, edPub)},
+		"secp256k1-sec1":  {[]byte(secp256k1SEC1PEM), secp256k1Fingerprint},
+		"secp256k1-pkcs8": {[]byte(secp256k1PKCS8PEM), secp256k1Fingerprint},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			km, err := Parse(tc.data)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if km.Fingerprint != tc.want {
+				t.Errorf("Fingerprint = %q, want %q", km.Fingerprint, tc.want)
+			}
+			if len(km.PublicKeyDER) == 0 {
+				t.Error("PublicKeyDER is empty")
+			}
+		})
+	}
+}
+
+func TestPublicKeyEqual(t *testing.T) {
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	otherRSA, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+
+	rsaKM, err := Parse(pemEncode(t, "PRIVATE KEY", mustPKCS8(t, rsaKey)))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	mustSPKI := func(pub any) []byte {
+		der, err := x509.MarshalPKIXPublicKey(pub)
+		if err != nil {
+			t.Fatalf("MarshalPKIXPublicKey: %v", err)
+		}
+		return der
+	}
+
+	if eq, err := rsaKM.PublicKeyEqual(mustSPKI(&rsaKey.PublicKey)); err != nil || !eq {
+		t.Errorf("same RSA key: eq=%v err=%v, want true", eq, err)
+	}
+	if eq, err := rsaKM.PublicKeyEqual(mustSPKI(&otherRSA.PublicKey)); err != nil || eq {
+		t.Errorf("different RSA key: eq=%v err=%v, want false", eq, err)
+	}
+	if eq, err := rsaKM.PublicKeyEqual(mustSPKI(&ecKey.PublicKey)); err != nil || eq {
+		t.Errorf("cross-type: eq=%v err=%v, want false", eq, err)
+	}
+	if _, err := rsaKM.PublicKeyEqual([]byte("not DER")); err == nil {
+		t.Error("garbage SPKI accepted")
+	}
+
+	k1KM, err := Parse([]byte(secp256k1SEC1PEM))
+	if err != nil {
+		t.Fatalf("Parse secp256k1: %v", err)
+	}
+	k1SPKI, err := base64.StdEncoding.DecodeString(secp256k1SPKIBase64)
+	if err != nil {
+		t.Fatalf("decoding fixture SPKI: %v", err)
+	}
+	if eq, err := k1KM.PublicKeyEqual(k1SPKI); err != nil || !eq {
+		t.Errorf("secp256k1 same key: eq=%v err=%v, want true", eq, err)
+	}
+	if eq, err := k1KM.PublicKeyEqual(mustSPKI(&ecKey.PublicKey)); err != nil || eq {
+		t.Errorf("secp256k1 vs P-256: eq=%v err=%v, want false", eq, err)
 	}
 }

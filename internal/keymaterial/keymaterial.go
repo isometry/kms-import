@@ -3,13 +3,17 @@
 package keymaterial
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -23,6 +27,71 @@ type KeyMaterial struct {
 	PKCS8DER []byte
 	// KeySpec is the AWS KMS key spec matching the key material.
 	KeySpec types.KeySpec
+	// PublicKeyDER is the derived public key as DER-encoded SubjectPublicKeyInfo,
+	// the same encoding KMS returns from GetPublicKey.
+	PublicKeyDER []byte
+	// Fingerprint is "sha256:<hex>" over PublicKeyDER, used to tag and look up
+	// KMS keys holding this material.
+	Fingerprint string
+
+	// publicKey enables semantic comparison for stdlib-supported key types;
+	// nil for secp256k1, which is compared structurally via PublicKeyDER.
+	publicKey crypto.PublicKey
+}
+
+// PublicKeyEqual reports whether spkiDER (e.g. the KMS GetPublicKey response)
+// contains the same public key as this material. Comparison is semantic, not
+// byte-wise, so encoding differences between producers do not matter.
+func (k *KeyMaterial) PublicKeyEqual(spkiDER []byte) (bool, error) {
+	if bytes.Equal(spkiDER, k.PublicKeyDER) {
+		return true, nil
+	}
+	if k.publicKey != nil {
+		pub, err := x509.ParsePKIXPublicKey(spkiDER)
+		if err != nil {
+			// A structurally valid SPKI the stdlib cannot handle (e.g.
+			// secp256k1) is simply a different key, not an error.
+			if _, _, spkiErr := parseSPKI(spkiDER); spkiErr == nil {
+				return false, nil
+			}
+			return false, fmt.Errorf("parsing public key: %w", err)
+		}
+		pk, ok := k.publicKey.(interface{ Equal(crypto.PublicKey) bool })
+		return ok && pk.Equal(pub), nil
+	}
+
+	// secp256k1: compare algorithm identifiers and public points structurally.
+	ownAlgo, ownPoint, err := parseSPKI(k.PublicKeyDER)
+	if err != nil {
+		return false, fmt.Errorf("parsing own public key: %w", err)
+	}
+	algo, point, err := parseSPKI(spkiDER)
+	if err != nil {
+		return false, fmt.Errorf("parsing public key: %w", err)
+	}
+	return ownAlgo.Algorithm.Equal(algo.Algorithm) &&
+		bytes.Equal(ownAlgo.Parameters.FullBytes, algo.Parameters.FullBytes) &&
+		bytes.Equal(ownPoint.RightAlign(), point.RightAlign()), nil
+}
+
+type subjectPublicKeyInfo struct {
+	Algo      pkix.AlgorithmIdentifier
+	PublicKey asn1.BitString
+}
+
+func parseSPKI(der []byte) (pkix.AlgorithmIdentifier, asn1.BitString, error) {
+	var info subjectPublicKeyInfo
+	if rest, err := asn1.Unmarshal(der, &info); err != nil {
+		return pkix.AlgorithmIdentifier{}, asn1.BitString{}, err
+	} else if len(rest) != 0 {
+		return pkix.AlgorithmIdentifier{}, asn1.BitString{}, errors.New("trailing data after SubjectPublicKeyInfo")
+	}
+	return info.Algo, info.PublicKey, nil
+}
+
+func fingerprint(spkiDER []byte) string {
+	sum := sha256.Sum256(spkiDER)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 var (
@@ -145,7 +214,19 @@ func fromKey(key any) (*KeyMaterial, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encoding key as PKCS#8: %w", err)
 	}
-	return &KeyMaterial{PKCS8DER: der, KeySpec: spec}, nil
+
+	pub := key.(crypto.Signer).Public()
+	pubDER, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return nil, fmt.Errorf("encoding public key: %w", err)
+	}
+	return &KeyMaterial{
+		PKCS8DER:     der,
+		KeySpec:      spec,
+		PublicKeyDER: pubDER,
+		Fingerprint:  fingerprint(pubDER),
+		publicKey:    pub,
+	}, nil
 }
 
 // ASN.1 structures for the secp256k1 paths the stdlib refuses to handle.
@@ -187,7 +268,41 @@ func secp256k1FromPKCS8(der []byte) (*KeyMaterial, error) {
 	if _, err := asn1.Unmarshal(info.Algo.Parameters.FullBytes, &curve); err != nil || !curve.Equal(oidSecp256k1) {
 		return nil, errors.New("not a secp256k1 key")
 	}
-	return &KeyMaterial{PKCS8DER: der, KeySpec: types.KeySpecEccSecgP256k1}, nil
+	var inner sec1PrivateKey
+	if _, err := asn1.Unmarshal(info.PrivateKey, &inner); err != nil {
+		return nil, fmt.Errorf("parsing inner EC key: %w", err)
+	}
+	return secp256k1Material(der, inner.PublicKey)
+}
+
+// secp256k1Material assembles the KeyMaterial for a secp256k1 key from its
+// final PKCS#8 encoding and the public point embedded in the source encoding.
+// The stdlib has no secp256k1 curve math, so a key without an embedded public
+// point cannot be fingerprinted.
+func secp256k1Material(pkcs8DER []byte, point asn1.BitString) (*KeyMaterial, error) {
+	if point.BitLength == 0 {
+		return nil, errors.New("secp256k1 key has no embedded public key: cannot derive its fingerprint")
+	}
+	params, err := asn1.Marshal(oidSecp256k1)
+	if err != nil {
+		return nil, fmt.Errorf("encoding curve OID: %w", err)
+	}
+	pubDER, err := asn1.Marshal(subjectPublicKeyInfo{
+		Algo: pkix.AlgorithmIdentifier{
+			Algorithm:  oidECPublicKey,
+			Parameters: asn1.RawValue{FullBytes: params},
+		},
+		PublicKey: point,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encoding public key: %w", err)
+	}
+	return &KeyMaterial{
+		PKCS8DER:     pkcs8DER,
+		KeySpec:      types.KeySpecEccSecgP256k1,
+		PublicKeyDER: pubDER,
+		Fingerprint:  fingerprint(pubDER),
+	}, nil
 }
 
 func secp256k1FromSEC1(der []byte) (*KeyMaterial, error) {
@@ -224,5 +339,5 @@ func secp256k1FromSEC1(der []byte) (*KeyMaterial, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encoding PKCS#8: %w", err)
 	}
-	return &KeyMaterial{PKCS8DER: pkcs8, KeySpec: types.KeySpecEccSecgP256k1}, nil
+	return secp256k1Material(pkcs8, key.PublicKey)
 }
