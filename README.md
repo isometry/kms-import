@@ -117,16 +117,92 @@ $ kms-import key.pem --alias my-key --output json
 
 ## Required IAM permissions
 
-- `kms:CreateKey`
-- `kms:GetParametersForImport`
-- `kms:ImportKeyMaterial`
-- `kms:TagResource` (fingerprint tag; also user tags)
-- `kms:CreateAlias` (when using `--alias`)
-- `kms:ScheduleKeyDeletion` (for cleanup of keys whose import failed)
-- `tag:GetResources` (idempotent lookup; without it the tool warns and always
+- `kms:CreateKey` — create the EXTERNAL-origin key
+- `kms:GetParametersForImport`, `kms:ImportKeyMaterial` — the import itself
+- `kms:TagResource` — fingerprint tag and user tags
+- `kms:CreateAlias` — when using `--alias`
+- `kms:ScheduleKeyDeletion` — cleanup of just-created keys whose import failed
+- `tag:GetResources` — idempotent lookup (without it the tool warns and always
   creates)
 - `kms:DescribeKey`, `kms:GetPublicKey`, `kms:ListAliases`,
-  `kms:ListResourceTags` (verification and convergence of existing keys)
+  `kms:ListResourceTags` — verification and convergence of existing keys
+
+<details>
+<summary>Complete IAM policy</summary>
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateExternalOriginKeys",
+      "Effect": "Allow",
+      "Action": "kms:CreateKey",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "kms:KeyOrigin": "EXTERNAL" } }
+    },
+    {
+      "Sid": "DiscoverKeysByFingerprintTag",
+      "Effect": "Allow",
+      "Action": ["tag:GetResources", "kms:ListAliases"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "FetchImportParameters",
+      "Effect": "Allow",
+      "Action": "kms:GetParametersForImport",
+      "Resource": "arn:aws:kms:*:111122223333:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:WrappingAlgorithm": "RSA_AES_KEY_WRAP_SHA_256",
+          "kms:WrappingKeySpec": "RSA_4096"
+        }
+      }
+    },
+    {
+      "Sid": "ManageImportedKeys",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetPublicKey",
+        "kms:ImportKeyMaterial",
+        "kms:ListResourceTags",
+        "kms:TagResource",
+        "kms:ScheduleKeyDeletion"
+      ],
+      "Resource": "arn:aws:kms:*:111122223333:key/*"
+    },
+    {
+      "Sid": "CreateAliases",
+      "Effect": "Allow",
+      "Action": "kms:CreateAlias",
+      "Resource": [
+        "arn:aws:kms:*:111122223333:alias/*",
+        "arn:aws:kms:*:111122223333:key/*"
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+
+- Replace `111122223333` with your AWS account id; narrow the region wildcard
+  if desired.
+- `kms:CreateKey`, `kms:ListAliases` and `tag:GetResources` do not support
+  resource-level scoping and must be granted on `Resource: "*"`. The
+  `kms:KeyOrigin` condition restricts key creation to import-style
+  (`EXTERNAL`) keys only, and the wrapping conditions pin
+  `GetParametersForImport` to the only parameters kms-import ever requests.
+- `kms:CreateAlias` requires permission on **both** the alias ARN and the
+  target key ARN.
+- `kms:ScheduleKeyDeletion` is used solely to clean up a just-created key
+  whose import failed. Omit it if you prefer; failed runs will then leave
+  unusable `PendingImport` keys behind for manual deletion.
+- Keys created by kms-import get the default key policy, which delegates
+  authorisation to IAM policies like this one.
+
+</details>
 
 ## Security notes
 
