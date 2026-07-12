@@ -63,6 +63,27 @@ Unencrypted private keys in PEM or DER form (PKCS#1, PKCS#8 or SEC1):
 Note: for asymmetric KMS keys, key material can only ever be imported once —
 the same material can be reimported (e.g. to reset expiry), but never replaced.
 
+## Installation
+
+Homebrew (macOS/Linux; poured as a bottle, shell completions included —
+Homebrew ≥6 requires trusting third-party taps first):
+
+```console
+$ brew trust isometry/tap
+$ brew install isometry/tap/kms-import
+```
+
+Pre-built binaries for macOS, Linux and Windows are attached to
+[GitHub releases](https://github.com/isometry/kms-import/releases), with
+checksums and SLSA build-provenance attestations
+(`gh attestation verify <archive> --repo isometry/kms-import`).
+
+Or build from source:
+
+```console
+$ go install github.com/isometry/kms-import@latest
+```
+
 ## Usage
 
 ```console

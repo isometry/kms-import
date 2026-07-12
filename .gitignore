@@ -1,5 +1,6 @@
 /kms-import
 /dist/
+/bottles/
 *.pem
 *.der
 *.bin

@@ -1,0 +1,24 @@
+# gobottle configuration
+# See: https://github.com/isometry/gobottle
+
+formula:
+  name: kms-import
+  description: Idempotently import locally-held private keys into AWS KMS
+  homepage: https://github.com/isometry/kms-import
+  license: MIT
+  install:
+    completions: true
+  test:
+    command: [--version]
+
+source:
+  type: go
+  build:
+    packages: ["."]
+    ldflags: >-
+      -s -w
+      -X main.version={{.Version}}
+
+tap:
+  owner: isometry
+  repo: homebrew-tap
